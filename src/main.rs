@@ -117,19 +117,31 @@ impl Meta {
     }
 }
 
-fn format_bytes(bytes: u64, padding: usize) -> String {
+fn format_bytes(bytes: u64) -> String {
     if bytes < 1024 {
-        format!("{}{:.2} B", " ".repeat(padding), bytes)
+        format!("{:>8.2} B", bytes)
     } else if bytes < 1024_u64.pow(2) {
-        format!("{}{:.2} KiB", " ".repeat(padding), bytes as f32 / 1024 as f32)
+        format!("{:>8.2} KiB", bytes as f32 / 1024 as f32)
     } else if bytes < 1024_u64.pow(3) {
-        format!("{}{:.2} MiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(2.) as f32)
+        format!(
+            "{:>8.2} MiB",
+            bytes as f32 / 1024_f32.powf(2.) as f32
+        )
     } else if bytes < 1024_u64.pow(4) {
-        format!("{}{:.2} GiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(3.) as f32)
+        format!(
+            "{:>8.2} GiB",
+            bytes as f32 / 1024_f32.powf(3.) as f32
+        )
     } else if bytes < 1024_u64.pow(5) {
-        format!("{}{:.2} TiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(4.) as f32)
+        format!(
+            "{:>8.2} TiB",
+            bytes as f32 / 1024_f32.powf(4.) as f32
+        )
     } else if bytes < 1024_u64.pow(6) {
-        format!("{}{:.2} PiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(5.) as f32)
+        format!(
+            "{:>8.2} PiB",
+            bytes as f32 / 1024_f32.powf(5.) as f32
+        )
     } else {
         format!("{bytes}")
     }
@@ -245,7 +257,12 @@ fn main() -> io::Result<()> {
     writeln!(handle, "newlines{:>12}", metrics.newlines)?;
     writeln!(handle, "todos{:>15}", metrics.todos)?;
     writeln!(handle, "fixmes{:>14}", metrics.fixmes)?;
-    writeln!(handle, "files{:>15}", metrics.num_files)?;
+    writeln!(
+        handle,
+        "files{:>15} files{}",
+        metrics.num_files,
+        format_bytes(metrics.files.total_size)
+    )?;
 
     let smallest = metrics.files.min_lines();
     let largest = metrics.files.max_lines();
@@ -255,44 +272,26 @@ fn main() -> io::Result<()> {
     writeln!(handle, "\nlines{:>15}", metrics.files.total_lines)?;
     writeln!(
         handle,
-        "smallest file{:>7} lines{}{}",
+        "smallest file{:>7} lines{}{}{}",
         smallest.0,
+        format_bytes(metrics.files.min_size().0),
         " ".repeat(padding),
         smallest.1
     )?;
     writeln!(
         handle,
-        "largest file{:>8} lines{}{}",
+        "largest file{:>8} lines{}{}{}",
         largest.0,
+        format_bytes(metrics.files.max_size().0),
         " ".repeat(padding),
         largest.1
     )?;
-    writeln!(handle, "average{:>13} lines", metrics.files.average_lines())?;
-
     writeln!(
         handle,
-        "\ntotal size{}",
-        format_bytes(metrics.files.total_size, 6)
+        "average{:>13} lines{}",
+        metrics.files.average_lines(),
+        format_bytes(metrics.files.average_size()),
     )?;
-    writeln!(
-        handle,
-        "smallest file{}{}{}",
-        format_bytes(metrics.files.min_size().0, 3),
-        " ".repeat(padding),
-        metrics.files.min_size().1,
-    )?;
-    writeln!(
-        handle,
-        "largest file{}{}{}",
-        format_bytes(metrics.files.max_size().0, 4),
-        " ".repeat(padding),
-        metrics.files.max_size().1,
-    )?;
-    writeln!(
-        handle,
-        "average size{}",
-        format_bytes(metrics.files.average_size(), 4),
-    )?;
-
+    
     Ok(())
 }
