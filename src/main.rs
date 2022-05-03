@@ -1,7 +1,8 @@
 mod args;
 
 use std::{
-    fs,
+    collections::BTreeMap,
+    fs::{self},
     io::{self, Write},
     path::PathBuf,
 };
@@ -26,11 +27,118 @@ pub struct Metrics {
     pub num_files: usize,
     pub todos: usize,
     pub fixmes: usize,
+    pub files: Cache,
 }
+
+#[derive(Debug)]
+pub struct Cache {
+    pub total_lines: usize,
+    pub total_size: u64,
+    pub lines: BTreeMap<usize, String>,
+    pub sizes: BTreeMap<u64, String>,
+}
+
+impl Cache {
+    pub fn new() -> Self {
+        Self {
+            lines: BTreeMap::new(),
+            sizes: BTreeMap::new(),
+            total_lines: 0,
+            total_size: 0,
+        }
+    }
+
+    pub fn insert_line(&mut self, k: usize, v: String) {
+        self.lines.insert(k, v);
+    }
+
+    pub fn insert_size(&mut self, k: u64, v: String) {
+        self.sizes.insert(k, v);
+    }
+
+    /// Get the largest file by lines of code.
+    pub fn max_lines(&self) -> (usize, &str) {
+        let pair = self.lines.iter().next_back().unwrap();
+        (*pair.0, &pair.1)
+    }
+
+    /// Get the file with the fewest lines of code.
+    pub fn min_lines(&self) -> (usize, &str) {
+        let pair = self.lines.iter().next().unwrap();
+        (*pair.0, &pair.1)
+    }
+
+    /// Find the average number of lines per file.
+    pub fn average_lines(&self) -> usize {
+        let mut sum = 0;
+
+        self.lines.iter().for_each(|(x, _)| {
+            sum += x;
+        });
+
+        sum / self.lines.len()
+    }
+
+    /// Get the largest file by lines of bytes.
+    pub fn max_size(&self) -> (u64, &str) {
+        let pair = self.sizes.iter().next_back().unwrap();
+        (*pair.0, &pair.1)
+    }
+
+    /// Get the file with the fewest lines of code.
+    pub fn min_size(&self) -> (u64, &str) {
+        let pair = self.sizes.iter().next().unwrap();
+        (*pair.0, &pair.1)
+    }
+
+    /// Find the average number of lines per file.
+    pub fn average_size(&self) -> u64 {
+        let mut sum = 0_usize;
+
+        self.sizes.iter().for_each(|(x, _)| {
+            sum += *x as usize;
+        });
+
+        (sum / self.lines.len()) as u64
+    }
+}
+
+/// A file's metadata.
+pub struct Meta {
+    /// The path to the file.
+    path: String,
+    /// The size of the file, in bytes.
+    size: u64,
+}
+
+impl Meta {
+    pub fn new(path: String, size: u64) -> Self {
+        Meta { path, size }
+    }
+}
+
+fn format_bytes(bytes: u64, padding: usize) -> String {
+    if bytes < 1024 {
+        format!("{}{:.2} B", " ".repeat(padding), bytes)
+    } else if bytes < 1024_u64.pow(2) {
+        format!("{}{:.2} KiB", " ".repeat(padding), bytes as f32 / 1024 as f32)
+    } else if bytes < 1024_u64.pow(3) {
+        format!("{}{:.2} MiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(2.) as f32)
+    } else if bytes < 1024_u64.pow(4) {
+        format!("{}{:.2} GiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(3.) as f32)
+    } else if bytes < 1024_u64.pow(5) {
+        format!("{}{:.2} TiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(4.) as f32)
+    } else if bytes < 1024_u64.pow(6) {
+        format!("{}{:.2} PiB", " ".repeat(padding), bytes as f32 / 1024_f32.powf(5.) as f32)
+    } else {
+        format!("{bytes}")
+    }
+}
+pub struct File(String, Meta);
 
 fn read_dirs<Path: Into<PathBuf>>(
     paths: Vec<Path>,
-    cache: &mut Vec<String>,
+    cache: &mut Vec<File>,
     extensions: &[String],
 ) -> io::Result<()> {
     for path in paths {
@@ -42,7 +150,7 @@ fn read_dirs<Path: Into<PathBuf>>(
 
 fn read_dir_recursive<Path: Into<PathBuf>>(
     path: Path,
-    cache: &mut Vec<String>,
+    cache: &mut Vec<File>,
     extensions: &[String],
 ) -> io::Result<()> {
     let path = path.into();
@@ -67,7 +175,11 @@ fn read_dir_recursive<Path: Into<PathBuf>>(
                         .to_string(),
                 ) {
                     let file = fs::read_to_string(entry.path())?;
-                    cache.push(file);
+                    let size = fs::metadata(entry.path())?.len();
+                    cache.push(File(
+                        file,
+                        Meta::new(entry.path().to_str().unwrap().into(), size),
+                    ));
                 }
             }
         }
@@ -76,14 +188,17 @@ fn read_dir_recursive<Path: Into<PathBuf>>(
     Ok(())
 }
 
-fn metrics(files: Vec<String>) -> Metrics {
+fn metrics(files: Vec<File>) -> Metrics {
     let mut newlines = 0;
     let mut semicolons = 0;
     let mut todos = 0;
     let mut fixmes = 0;
+    let mut cache = Cache::new();
     let num_files = files.len();
 
     for file in files {
+        let (file, meta) = (file.0, file.1);
+
         let re: Vec<_> = NEWLINES.captures_iter(&file).collect();
         newlines += re.len();
 
@@ -95,6 +210,14 @@ fn metrics(files: Vec<String>) -> Metrics {
 
         let re: Vec<_> = FIXMES.captures_iter(&file).collect();
         fixmes += re.len();
+
+        let len = file.split("\n").collect::<Vec<&str>>().len();
+
+        cache.total_lines += len;
+        cache.total_size += meta.size;
+
+        cache.insert_line(len, meta.path.clone());
+        cache.insert_size(meta.size, meta.path);
     }
 
     Metrics {
@@ -103,14 +226,13 @@ fn metrics(files: Vec<String>) -> Metrics {
         num_files,
         todos,
         fixmes,
+        files: cache,
     }
 }
 
 fn main() -> io::Result<()> {
     let args = Args::new();
-
-    let mut files = Vec::<String>::new();
-    //let extensions = &["rs"];
+    let mut files = Vec::<File>::new();
 
     read_dirs(args.paths, &mut files, &args.extensions)?;
 
@@ -124,6 +246,53 @@ fn main() -> io::Result<()> {
     writeln!(handle, "todos{:>15}", metrics.todos)?;
     writeln!(handle, "fixmes{:>14}", metrics.fixmes)?;
     writeln!(handle, "files{:>15}", metrics.num_files)?;
+
+    let smallest = metrics.files.min_lines();
+    let largest = metrics.files.max_lines();
+
+    let padding = 5;
+
+    writeln!(handle, "\nlines{:>15}", metrics.files.total_lines)?;
+    writeln!(
+        handle,
+        "smallest file{:>7} lines{}{}",
+        smallest.0,
+        " ".repeat(padding),
+        smallest.1
+    )?;
+    writeln!(
+        handle,
+        "largest file{:>8} lines{}{}",
+        largest.0,
+        " ".repeat(padding),
+        largest.1
+    )?;
+    writeln!(handle, "average{:>13} lines", metrics.files.average_lines())?;
+
+    writeln!(
+        handle,
+        "\ntotal size{}",
+        format_bytes(metrics.files.total_size, 6)
+    )?;
+    writeln!(
+        handle,
+        "smallest file{}{}{}",
+        format_bytes(metrics.files.min_size().0, 3),
+        " ".repeat(padding),
+        metrics.files.min_size().1,
+    )?;
+    writeln!(
+        handle,
+        "largest file{}{}{}",
+        format_bytes(metrics.files.max_size().0, 4),
+        " ".repeat(padding),
+        metrics.files.max_size().1,
+    )?;
+    writeln!(
+        handle,
+        "average size{}",
+        format_bytes(metrics.files.average_size(), 4),
+    )?;
 
     Ok(())
 }

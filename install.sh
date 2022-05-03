@@ -2,7 +2,7 @@
 
 echo "Installing metrics cli"
 
-cargo build --release
+cargo build --release || 0
 
 path="$PWD/target/release/metrics"
 
