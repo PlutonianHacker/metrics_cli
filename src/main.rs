@@ -1,9 +1,12 @@
+mod args;
+
 use std::{
     fs,
     io::{self, Write},
     path::PathBuf,
 };
 
+use args::Args;
 use regex::Regex;
 
 #[macro_use]
@@ -24,11 +27,23 @@ pub struct Metrics {
     pub todos: usize,
     pub fixmes: usize,
 }
-  
+
+fn read_dirs<Path: Into<PathBuf>>(
+    paths: Vec<Path>,
+    cache: &mut Vec<String>,
+    extensions: &[String],
+) -> io::Result<()> {
+    for path in paths {
+        read_dir_recursive(path, cache, extensions)?;
+    }
+
+    Ok(())
+}
+
 fn read_dir_recursive<Path: Into<PathBuf>>(
     path: Path,
     cache: &mut Vec<String>,
-    extensions: &[&str],
+    extensions: &[String],
 ) -> io::Result<()> {
     let path = path.into();
 
@@ -42,7 +57,15 @@ fn read_dir_recursive<Path: Into<PathBuf>>(
                     continue;
                 }
 
-                if extensions.contains(&entry.path().extension().unwrap().to_str().unwrap()) {
+                if extensions.contains(
+                    &entry
+                        .path()
+                        .extension()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                ) {
                     let file = fs::read_to_string(entry.path())?;
                     cache.push(file);
                 }
@@ -69,7 +92,7 @@ fn metrics(files: Vec<String>) -> Metrics {
 
         let re: Vec<_> = TODOS.captures_iter(&file).collect();
         todos += re.len();
-        
+
         let re: Vec<_> = FIXMES.captures_iter(&file).collect();
         fixmes += re.len();
     }
@@ -84,16 +107,16 @@ fn metrics(files: Vec<String>) -> Metrics {
 }
 
 fn main() -> io::Result<()> {
+    let args = Args::new();
+
     let mut files = Vec::<String>::new();
+    //let extensions = &["rs"];
 
-    let extensions = &["rs"];
-
-    read_dir_recursive("./", &mut files, extensions)?;
+    read_dirs(args.paths, &mut files, &args.extensions)?;
 
     let metrics = metrics(files);
 
     let io = io::stdout();
-
     let mut handle = io.lock();
 
     writeln!(handle, "semicolons{:>10}", metrics.semicolons)?;
