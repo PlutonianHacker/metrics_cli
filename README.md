@@ -1,2 +1,2 @@
 # Metrics
-A rusty command line utility that reports a directory's metrics. 
+A rusty command line utility for reporting a directory's metrics. 
